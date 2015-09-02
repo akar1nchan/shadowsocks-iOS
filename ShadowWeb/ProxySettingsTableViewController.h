@@ -14,9 +14,5 @@
     UITextField *passwordField;
 }
 
-+(BOOL)settingsAreNotComplete;
-+(BOOL)runProxy;
-+(void)reloadConfig;
--(void)saveConfigForKey:(NSString *)key value:(NSString *)value;
 @property (nonatomic, weak) UIPopoverController *myPopoverController;
 @end

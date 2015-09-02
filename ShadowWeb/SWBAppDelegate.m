@@ -7,12 +7,13 @@
 //
 #import <Crashlytics/Crashlytics.h>
 
+#import "GZIP.h"
 #import "AppProxyCap.h"
 #import "SWBAppDelegate.h"
 
 #import "GCDWebServer.h"
 #import "SWBViewController.h"
-#import "ProxySettingsTableViewController.h"
+#import "ShadowsocksRunner.h"
 
 #define kProxyModeKey @"proxy mode"
 
@@ -22,6 +23,7 @@ void polipo_exit();
 @implementation SWBAppDelegate {
     BOOL polipoRunning;
     BOOL polipoEnabled;
+    NSURL *ssURL;
 }
 
 - (void)updateProxyMode {
@@ -52,7 +54,7 @@ void polipo_exit();
 //    [self proxyHttpStart];
 //    [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(updatePolipo) userInfo:nil repeats:YES];
 
-    NSData *pacData = [NSData dataWithContentsOfURL:[[NSBundle mainBundle] URLForResource:@"proxy" withExtension:@"pac"]];
+    NSData *pacData = [[NSData dataWithContentsOfURL:[[NSBundle mainBundle] URLForResource:@"proxy" withExtension:@"pac.gz"]] gunzippedData];
     GCDWebServer *webServer = [[GCDWebServer alloc] init];
     [webServer addHandlerForMethod:@"GET" path:@"/proxy.pac" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
              return [GCDWebServerDataResponse responseWithData:pacData contentType:@"application/x-ns-proxy-autoconfig"];
@@ -90,6 +92,27 @@ void polipo_exit();
     return YES;
 }
 
+
+- (BOOL)application:(UIApplication *)application handleOpenURL:(NSURL *)url {
+    return [self application:application openURL:url sourceApplication:nil annotation:nil];
+}
+
+- (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation {
+    ssURL = url;
+    UIAlertView *alertView = [[UIAlertView alloc] initWithTitle:_L(Use this server?) message:[url absoluteString] delegate:self cancelButtonTitle:_L(Cancel) otherButtonTitles:_L(OK), nil];
+    [alertView show];
+    return YES;
+}
+
+- (void)alertView:(UIAlertView *)alertView didDismissWithButtonIndex:(NSInteger)buttonIndex {
+    if (buttonIndex == 1) {
+        [ShadowsocksRunner openSSURL:ssURL];
+    } else {
+        // Do nothing
+    }
+}
+
+
 - (void)applicationWillResignActive:(UIApplication *)application {
     // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
     // Use this method to pause ongoing tasks, disable timers, and throttle down OpenGL ES frame rates. Games should use this method to pause the game.
@@ -117,9 +140,9 @@ void polipo_exit();
 #pragma mark - Run proxy
 
 - (void)runProxy {
-    [ProxySettingsTableViewController reloadConfig];
+    [ShadowsocksRunner reloadConfig];
     for (; ;) {
-        if ([ProxySettingsTableViewController runProxy]) {
+        if ([ShadowsocksRunner runProxy]) {
             sleep(1);
         } else {
             sleep(2);

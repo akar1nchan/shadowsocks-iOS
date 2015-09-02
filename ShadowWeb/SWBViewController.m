@@ -7,7 +7,9 @@
 //
 
 #import <AVFoundation/AVFoundation.h>
+#import "QRCodeViewController.h"
 #import "SWBViewController.h"
+#import "ShadowsocksRunner.h"
 #import "ProxySettingsTableViewController.h"
 #import "SWBAboutController.h"
 
@@ -17,6 +19,7 @@
 @interface SWBViewController () {
     AVAudioPlayer *player;
     UIPopoverController *settingsPC;
+    UIBarButtonItem *actionBarButton;
 }
 
 @end
@@ -25,12 +28,26 @@
 
 #pragma mark - View lifecycle
 
+- (UIStatusBarStyle)preferredStatusBarStyle {
+    return UIStatusBarStyleDefault;
+}
+
+- (UIRectEdge) edgesForExtendedLayout {
+    return UIRectEdgeNone;
+}
+
+- (CGFloat) statusBarHeight {
+    return ([[[UIDevice currentDevice] systemVersion] floatValue] >= 7.0) ?
+        20 : 0;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
 
     // If don't do this, you'll see some white edge when doing the rotation
     self.view.clipsToBounds = YES;
-
+    self.view.backgroundColor = [UIColor whiteColor];
+    
     currentTabTag = 0;
     CGRect bounds = self.view.bounds;
     self.tabBar = [[SWBTabBarView alloc] initWithFrame:CGRectMake(0, bounds.size.height - kTabBarHeight, bounds.size.width, kTabBarHeight)];
@@ -44,11 +61,13 @@
 
 
     // init address bar
-    self.addrbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, bounds.size.width, kToolBarHeight)];
-
+    self.addrbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, [self statusBarHeight], bounds.size.width, kToolBarHeight)];
     // init bar buttons
 
-    self.urlField = [[UITextField alloc] initWithFrame:CGRectInset(_addrbar.bounds, 12, 7)];
+    
+    CGRect urlFieldFrame = CGRectInset(_addrbar.bounds, 12 + kActionButtonWidth * 0.5f, 7);
+    urlFieldFrame = CGRectOffset(urlFieldFrame, -kActionButtonWidth * 0.5f, 0);
+    self.urlField = [[UITextField alloc] initWithFrame:urlFieldFrame];
     [_urlField setBorderStyle:UITextBorderStyleRoundedRect];
     [_urlField setKeyboardType:UIKeyboardTypeURL];
     UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithCustomView:_urlField];
@@ -63,16 +82,27 @@
     [_urlField setPlaceholder:@"URL"];
     [_urlField setAutoresizingMask:UIViewAutoresizingFlexibleWidth];
 
-    self.cancelButton = [[UIBarButtonItem alloc] initWithTitle:_L(Cancel) style:UIBarButtonItemStyleBordered target:self action:@selector(cancel)];
+    UIBarButtonItem *_cancelButton = [[UIBarButtonItem alloc] initWithTitle:_L(Cancel) style:UIBarButtonItemStyleBordered target:self action:@selector(cancel)];
     _cancelButton.width = kCancelButtonWidth;
-
-    self.addrItemsInactive = [NSMutableArray arrayWithObjects:[[UIBarButtonItem alloc] initWithCustomView:_urlField], [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil], nil];
-    self.addrItemsActive = [NSMutableArray arrayWithArray:_addrItemsInactive];
-    [_addrItemsActive addObject:_cancelButton];
+    UIBarButtonItem *_actionButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAction target:self action:@selector(addrBarViewMoreDidClick)];
+    _actionButton.width = kActionButtonWidth;
+    actionBarButton = _actionButton;
+    
+    self.addrItemsInactive = [NSMutableArray arrayWithObjects:
+                            [[UIBarButtonItem alloc] initWithCustomView:_urlField],
+                            [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],
+                            _actionButton,
+                            nil];
+    self.addrItemsActive = [NSMutableArray arrayWithObjects:
+                            [self.addrItemsInactive objectAtIndex:0],
+                            _cancelButton,
+                            nil];
 
     [_addrbar setItems:_addrItemsInactive];
-    [_addrbar setBarStyle:UIBarStyleBlackOpaque];
-    [_addrbar setTintColor:[UIColor colorWithWhite:0.6f alpha:1.0f]];
+//    [_addrbar setBarStyle:UIBarStyleBlack];
+    if ([_addrbar respondsToSelector:@selector(setBarTintColor:)]) {
+        [_addrbar setBarTintColor:[UIColor whiteColor]];
+    }
 
     // add subviews
     [self.view addSubview:_webViewContainer];
@@ -114,7 +144,7 @@
 
 - (void)relayout:(CGRect)bounds {
     CGRect addrBarRect = CGRectMake(0, _addrbar.frame.origin.y, bounds.size.width, kToolBarHeight);
-    CGRect webViewContainerRect = CGRectMake(0, 0, bounds.size.width, bounds.size.height - kTabBarHeight);
+    CGRect webViewContainerRect = CGRectMake(0, [self statusBarHeight], bounds.size.width, bounds.size.height - kTabBarHeight - [self statusBarHeight]);
     CGRect tabBarRect = CGRectMake(0, bounds.size.height - kTabBarHeight, bounds.size.width, kTabBarHeight);
     _addrbar.frame = addrBarRect;
     _webViewContainer.frame = webViewContainerRect;
@@ -122,7 +152,7 @@
 }
 
 - (void)viewDidAppear:(BOOL)animated {
-    if ([ProxySettingsTableViewController settingsAreNotComplete]) {
+    if ([ShadowsocksRunner settingsAreNotComplete]) {
         [self showSettings];
     }
 }
@@ -234,7 +264,13 @@
         } else {
             [scrollView setScrollIndicatorInsets:UIEdgeInsetsMake(0, 0, 0, 0)];
         }
-        _addrbar.frame = CGRectMake(0, -kToolBarHeight - scrollView.contentOffset.y, _addrbar.frame.size.width, kToolBarHeight);
+        _addrbar.frame = CGRectMake(0, [self statusBarHeight] - kToolBarHeight - scrollView.contentOffset.y, _addrbar.frame.size.width, kToolBarHeight);
+        
+        CGFloat offset = MIN(kToolBarHeight, MAX(0, (kToolBarHeight + scrollView.contentOffset.y)));
+        CGFloat opacity = offset / kToolBarHeight;
+        _urlField.alpha = (1 - opacity)*(1 - opacity);
+        // NSLog(@"offset: %f, contentInset top: %f", offset, scrollView.contentInset.top);
+        [scrollView setContentInset:UIEdgeInsetsMake(kToolBarHeight - offset, 0, 0, 0)];
     }
 }
 
@@ -242,11 +278,19 @@
 
 - (void)initActionSheet {
     self.actionSheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:_L(Cancel) destructiveButtonTitle:nil otherButtonTitles:_L(New
-    Tab), _L(Back), _L(Forward), _L(Reload), _L(Settings), _L(Help), _L(About), nil];
+    Tab), _L(Back), _L(Forward), _L(Reload), _L(Settings), _L(Config via QRCode), _L(Help), _L(About), nil];
     [_actionSheet setActionSheetStyle:UIActionSheetStyleBlackTranslucent];
 }
 
 - (void)actionSheet:(UIActionSheet *)actionSheet didDismissWithButtonIndex:(NSInteger)buttonIndex {
+    QRCodeViewController *qrCodeViewController = [[QRCodeViewController alloc] initWithReturnBlock:^(NSString *code) {
+        if (code) {
+            NSURL *URL = [NSURL URLWithString:code];
+            if (URL) {
+                [[UIApplication sharedApplication] openURL:URL];
+            }
+        }
+    }];
     switch (buttonIndex) {
         case 0:
             [self openLinkInNewTab:kNewTabAddress];
@@ -266,9 +310,12 @@
             [self showSettings];
             break;
         case 5:
-            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://github.com/shadowsocks/shadowsocks-iOS/wiki/Help"]];
+            [self presentModalViewController:qrCodeViewController animated:YES];
             break;
         case 6:
+            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://github.com/shadowsocks/shadowsocks-iOS/wiki/Help"]];
+            break;
+        case 7:
             [self showAbout];
             break;
         default:
@@ -280,14 +327,15 @@
     SWBAboutController *settingsController = [[SWBAboutController alloc] initWithStyle:UITableViewStyleGrouped];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:settingsController];
     //    nav.navigationBar.tintColor = [UIColor blackColor];
-    nav.navigationBar.barStyle = UIBarStyleBlackOpaque;
+//    nav.navigationBar.barStyle = UIBarStyleBlackOpaque;
     if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
         settingsPC = [[UIPopoverController alloc] initWithContentViewController:nav];
         settingsController.myPopoverController = settingsPC;
         CGRect newTabRect = [self.tabBar aNewTabButton].frame;
         newTabRect.size.width = newTabRect.size.height;
         CGRect rect = [self.tabBar convertRect:newTabRect toView:self.view];
-        [settingsPC presentPopoverFromRect:rect inView:self.view permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
+//        [settingsPC presentPopoverFromRect:rect inView:self.view permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
+        [settingsPC presentPopoverFromBarButtonItem:actionBarButton permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
     } else {
         [self presentModalViewController:nav animated:YES];
     }
@@ -298,14 +346,15 @@
     ProxySettingsTableViewController *settingsController = [[ProxySettingsTableViewController alloc] initWithStyle:UITableViewStyleGrouped];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:settingsController];
     //    nav.navigationBar.tintColor = [UIColor blackColor];
-    nav.navigationBar.barStyle = UIBarStyleBlackOpaque;
+//    nav.navigationBar.barStyle = UIBarStyleBlackOpaque;
     if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
         settingsPC = [[UIPopoverController alloc] initWithContentViewController:nav];
         settingsController.myPopoverController = settingsPC;
         CGRect newTabRect = [self.tabBar aNewTabButton].frame;
         newTabRect.size.width = newTabRect.size.height;
         CGRect rect = [self.tabBar convertRect:newTabRect toView:self.view];
-        [settingsPC presentPopoverFromRect:rect inView:self.view permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
+//        [settingsPC presentPopoverFromRect:rect inView:self.view permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
+        [settingsPC presentPopoverFromBarButtonItem:actionBarButton permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
     } else {
         [self presentModalViewController:nav animated:YES];
     }
@@ -338,11 +387,18 @@
 
 
 - (void)tabBarViewNewTabButtonDidClick {
+    [self openLinkInNewTab:kNewTabAddress];
+    _urlField.text = @"";
+    [NSTimer scheduledTimerWithTimeInterval:0.20 target:_urlField selector:@selector(becomeFirstResponder) userInfo:nil repeats:NO];
+}
+
+- (void)addrBarViewMoreDidClick {
     if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
         CGRect newTabRect = [self.tabBar aNewTabButton].frame;
         newTabRect.size.width = newTabRect.size.height;
         CGRect rect = [self.tabBar convertRect:newTabRect toView:self.view];
-        [self.actionSheet showFromRect:rect inView:self.view animated:YES];
+//        [self.actionSheet showFromRect:rect inView:self.view animated:YES];
+        [self.actionSheet showFromBarButtonItem:actionBarButton animated:YES];
     } else {
         [self.actionSheet showInView:self.view];
     }
@@ -406,7 +462,7 @@
     }
     if ([pages count] == 0) {
 //        [self tabBarViewNewTabButtonDidClick];
-        [self openLinkInNewTab:kNewTabAddress];
+        [self openLinkInNewTab:@"http://www.google.com/"];
         [NSTimer scheduledTimerWithTimeInterval:0.20 target:_urlField selector:@selector(becomeFirstResponder) userInfo:nil repeats:NO];
     } else {
         [_tabBar setCurrentTabWithTag:currentTabTag];
@@ -496,13 +552,13 @@
 
 - (void)hideCancelButton {
     [_addrbar setItems:_addrItemsInactive animated:YES];
-
+    
     [UIView beginAnimations:nil context:NULL];
     CGRect bounds = [_addrbar bounds];
-    bounds = CGRectInset(bounds, 12, 7);
+    bounds = CGRectInset(bounds, 12 + kActionButtonWidth * 0.5f, 7);
+    bounds = CGRectOffset(bounds, -kActionButtonWidth * 0.5f, 0);
     [_urlField setFrame:bounds];
     [UIView commitAnimations];
-
 }
 
 - (void)cancel {
